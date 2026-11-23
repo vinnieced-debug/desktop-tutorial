@@ -17,7 +17,12 @@ GitHub is like **Google Drive for app files**, except it keeps every saved versi
 
 **Lesson learned:** I couldn't see my app because Claude saved it to a **branch** (a draft), and GitHub shows **main** by default. Switch branches with the dropdown in the top left that says "main".
 
-## Getting the app live (one-time setup)
+## Getting the app live (one-time setup) ✅ DONE
+**App link: https://vinnieced-debug.github.io/desktop-tutorial/**
+
+Where to find the link later: Settings → Pages → the top line says "Your site is live at…" with a **Visit site** button.
+When I change files, the site rebuilds on its own in about 1–2 minutes.
+
 1. **Merge the draft into main.** Ask Claude: "merge it into main."
 2. **Make the repo public**
    - Go to github.com/vinnieced-debug/desktop-tutorial/settings

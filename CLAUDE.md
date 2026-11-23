@@ -28,7 +28,7 @@ All app files live in `docs/` (GitHub Pages serves this folder):
 ## Status / next steps (update this as things change)
 - [x] App built and tested on a simulated iPhone, pushed to branch `claude/trusting-dirac-i9snp2`
 - [x] Branch merged into `main`. Future work: commit on a branch, then merge into main when the user approves
-- [ ] User makes the repo **public** (free GitHub Pages requires public; repo is currently private)
-- [ ] User turns on GitHub Pages: Settings → Pages → Branch `main`, folder `/docs`
+- [x] Repo made **public**
+- [x] GitHub Pages turned on (first build succeeded). Live link: https://vinnieced-debug.github.io/desktop-tutorial/ (if it shows the README instead of the app, the folder is set to root, not /docs)
 - [ ] Send the sister the link (expected: https://vinnieced-debug.github.io/desktop-tutorial/) and have her Add to Home Screen
 - [ ] Optional: add ChatGPT exercise images to `docs/images/exercises/`
