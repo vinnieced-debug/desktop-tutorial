@@ -88,11 +88,30 @@
 
   // ---------- UI primitives ----------
   function figHTML(exId, cls) { return `<div class="figbox ${cls || ''}"><svg class="fig" data-ex="${exId}"></svg></div>`; }
+  // Custom pictures: drop images/exercises/<exercise-id>.png (and optionally <id>-2.png
+  // for an end position) into the site. They replace the animated figure automatically.
+  const imgCache = {};
+  function probe(src) {
+    if (!imgCache[src]) imgCache[src] = new Promise(res => { const i = new Image(); i.onload = () => res(true); i.onerror = () => res(false); i.src = src; });
+    return imgCache[src];
+  }
   function mountFigs(root) {
     (root || document).querySelectorAll('svg.fig[data-ex]:not([data-m])').forEach(svg => {
-      const ex = EXERCISES[svg.dataset.ex]; if (!ex) return;
+      const id = svg.dataset.ex, ex = EXERCISES[id]; if (!ex) return;
       svg.setAttribute('data-m', '1');
       Figure.mount(svg, ex, { static: svg.hasAttribute('data-static') });
+      const a = `images/exercises/${id}.png`, b = `images/exercises/${id}-2.png`;
+      probe(a).then(ok => {
+        if (!ok || !svg.isConnected) return;
+        const img = document.createElement('img');
+        img.className = 'fig fig-img'; img.src = a; img.alt = ex.name;
+        svg.replaceWith(img);
+        probe(b).then(ok2 => {
+          if (!ok2) return;
+          let flip = false;
+          const t = setInterval(() => { if (!img.isConnected) return clearInterval(t); flip = !flip; img.src = flip ? b : a; }, 1300);
+        });
+      });
     });
   }
   let toastT;
@@ -188,6 +207,7 @@
     return `
       <div class="row between" style="margin-bottom:14px"><div><div class="muted small">${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${hi}${S.name ? ', ' + esc(S.name) : ''} 👋</h1></div></div>
       ${installHint()}
+      ${backupReminder()}
       ${banner}
       ${workoutHero(t)}
       ${vids.length ? `<h2>Your ${DAY_TYPES[type].label} videos</h2><div class="hscroll">${vids.map(vidThumb).join('')}</div>` : ''}
@@ -206,6 +226,8 @@
     on(v, '[data-day]', 'click', el => dayPreview(el.dataset.day));
     on(v, '[data-vid]', 'click', el => videoSheet(el.dataset.vid));
     on(v, '[data-dismiss-install]', 'click', () => { S.installHidden = true; save(); render(); });
+    on(v, '[data-backup]', 'click', backup);
+    on(v, '[data-snooze]', 'click', () => { S.backupSnooze = todayISO(); save(); render(); toast("We'll remind you tomorrow"); });
   };
   function bindHero(v) {
     on(v, '[data-start]', 'click', el => Player.start(el.dataset.start, el.dataset.date));
@@ -216,7 +238,7 @@
     if (standalone || S.installHidden) return '';
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
     return `<div class="card install"><div class="row between"><h3>📲 Put this app on your home screen</h3><button class="iconbtn" data-dismiss-install aria-label="Dismiss">✕</button></div>
-      <div class="small muted" style="margin-top:6px">${ios ? 'In <b>Safari</b>: tap the <b>Share</b> button (square with ↑ arrow) → <b>Add to Home Screen</b> → Add.' : 'In <b>Chrome</b>: tap the <b>⋮ menu</b> → <b>Add to Home screen</b> / <b>Install app</b>.'} It opens full-screen like a real app and works offline.</div></div>`;
+      <div class="small muted" style="margin-top:6px">${ios ? 'In <b>Safari</b>: tap the <b>Share</b> button (square with ↑ arrow) → <b>Add to Home Screen</b> → Add.' : 'In <b>Chrome</b>: tap the <b>⋮ menu</b> → <b>Add to Home screen</b> / <b>Install app</b>.'} It opens full-screen like a real app and works offline.<br><b>Important:</b> once it's on your home screen, always open it from that icon — that's where your progress is saved.</div></div>`;
   }
   function dayPreview(ds) {
     const p = programPos(ds), m = S.plan[p.weekC - 1][p.wd];
@@ -422,7 +444,7 @@
         $('#lsave', p).onclick = () => {
           S.log.unshift({ id: uid(), date: $('#ld', p).value || todayISO(), type: $('#ly', p).value, title: $('#lt', p).value.trim() || DAY_TYPES[$('#ly', p).value].label, mins: +$('#lm', p).value || 0, rating, notes: $('#ln', p).value.trim(), source: o.source || 'app' });
           S.log.sort((a, b) => b.date.localeCompare(a.date));
-          save(); closeSheet(); toast('Logged! 💪'); render();
+          save(); closeSheet(); toast(daysSinceBackup() >= 7 ? 'Logged! 💪 Tip: back up your progress (Progress tab)' : 'Logged! 💪'); render();
         };
       });
   }
@@ -595,7 +617,6 @@
     if (it.unit === '' && q % 1) return `buy ${Math.ceil(q)}`;
     return '';
   }
-  const instacartURL = name => `https://www.instacart.com/store/s?k=${encodeURIComponent(name)}`;
 
   VIEWS.shop = () => {
     const segs = [['groceries', 'Groceries'], ['gear', 'Home Gym Gear']];
@@ -608,16 +629,15 @@
       body = `<div class="chips" style="margin-bottom:12px">${[0, 1, 2, 3, 4, 5].map(i => `<button class="chip ${i === w ? 'on' : ''}" data-sw="${i}">Week ${i + 1}</button>`).join('')}</div>
         <div class="card tight"><div class="row between"><div><b>${left}</b> <span class="muted">items left</span></div>
           <div class="row" style="gap:6px"><span class="small muted">Servings</span><select class="inp" id="serv" style="width:70px;padding:6px 8px">${[1, 2, 3, 4].map(n => `<option ${n === S.servings ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div>
-          <div class="row wrap" style="margin-top:10px;gap:8px"><button class="btn sm" id="share">📤 Share / copy list</button><button class="btn sm ghost" id="clr">Uncheck all</button></div></div>
-        <div class="card" style="background:linear-gradient(135deg,#0aad0a12,#ff7a1a12)"><div class="row"><div style="font-size:28px">🥕</div><div class="grow"><b>Order on Instacart</b><div class="small muted">Tap 🛒 next to an item to find it on Instacart, or share the list and paste it into Instacart's search. Direct "send whole cart" is planned — see the note at the bottom.</div></div></div></div>
+          <div class="row wrap" style="margin-top:10px;gap:8px"><button class="btn sm" id="copy">📋 Copy list</button><button class="btn sm ghost" id="share">📤 Share</button><button class="btn sm line" id="clr">Uncheck all</button></div>
+          <div class="small muted" style="margin-top:8px">Copies everything not checked off. Paste it into Instacart, Notes, or a text message.</div></div>
         <div class="card tight shop">${AISLES.map(a => {
           const its = items.filter(i => i.aisle === a); if (!its.length) return '';
-          return `<div class="aisle">${a}</div><div class="list">${its.map(it => `<div class="item ${ck(it.key) ? 'done' : ''}"><button class="check ${ck(it.key) ? 'on' : ''}" data-ck="${esc(it.key)}">${ck(it.key) ? '✓' : ''}</button><div class="grow"><div class="t">${esc(it.name)}</div><div class="s">${fmtQty(it.qty)} ${esc(it.unit)} ${buyHint(it) ? '· ' + buyHint(it) : ''}</div></div><a class="iconbtn" href="${instacartURL(it.name)}" target="_blank" rel="noopener" aria-label="Find on Instacart">🛒</a></div>`).join('')}</div>`;
+          return `<div class="aisle">${a}</div><div class="list">${its.map(it => `<div class="item ${ck(it.key) ? 'done' : ''}"><button class="check ${ck(it.key) ? 'on' : ''}" data-ck="${esc(it.key)}">${ck(it.key) ? '✓' : ''}</button><div class="grow"><div class="t">${esc(it.name)}</div><div class="s">${fmtQty(it.qty)} ${esc(it.unit)} ${buyHint(it) ? '· ' + buyHint(it) : ''}</div></div></div>`).join('')}</div>`;
         }).join('')}
-        <div class="aisle">Extras</div><div class="list">${extra.map((e, ei) => `<div class="item ${e.done ? 'done' : ''}"><button class="check ${e.done ? 'on' : ''}" data-ex-ck="${ei}">${e.done ? '✓' : ''}</button><div class="grow t">${esc(e.name)}</div><a class="iconbtn" href="${instacartURL(e.name)}" target="_blank" rel="noopener">🛒</a><button class="iconbtn" data-ex-del="${ei}" aria-label="Remove">✕</button></div>`).join('')}</div>
+        <div class="aisle">Extras</div><div class="list">${extra.map((e, ei) => `<div class="item ${e.done ? 'done' : ''}"><button class="check ${e.done ? 'on' : ''}" data-ex-ck="${ei}">${e.done ? '✓' : ''}</button><div class="grow t">${esc(e.name)}</div><button class="iconbtn" data-ex-del="${ei}" aria-label="Remove">✕</button></div>`).join('')}</div>
         <div class="row" style="margin-top:10px"><input class="inp grow" id="xadd" placeholder="Add item (paper towels, coffee…)"><button class="btn" id="xbtn">Add</button></div></div>
-        <div class="note small"><b>Spices & basics to keep stocked:</b> cooking spray, salt, pepper, garlic powder, Italian seasoning, cumin, cinnamon, oregano, chili flakes. Not listed above.</div>
-        <div class="note small" style="margin-top:10px"><b>About Instacart:</b> a true one-tap "send my whole list to Instacart" needs an Instacart Developer Platform API key and a small server to keep that key secret. The app is built so that can be added later without changing anything else.</div>`;
+        <div class="note small"><b>Spices & basics to keep stocked:</b> cooking spray, salt, pepper, garlic powder, Italian seasoning, cumin, cinnamon, oregano, chili flakes. Not listed above.</div>`;
     } else {
       const owned = EQUIPMENT.filter(e => S.gear[e.id]).length;
       body = `<div class="card"><b>Everything you need to train at home</b><div class="small muted" style="margin-top:4px">Starter kit (must-haves + recommended) runs roughly <b>$150–300</b>. Start with the must-haves; you can do every workout with a mat, 3 pairs of dumbbells and loop bands. Prices are rough estimates.</div><div class="small" style="margin-top:8px"><b>${owned}/${EQUIPMENT.length}</b> items checked off</div></div>
@@ -638,12 +658,21 @@
     $('#clr', v).onclick = () => { Object.keys(S.shopChecked).forEach(k => { if (k.startsWith(w + '|')) delete S.shopChecked[k]; }); (S.shopExtra[w] || []).forEach(e => e.done = false); save(); render(); };
     const addX = () => { const i = $('#xadd', v), n = i.value.trim(); if (!n) return; (S.shopExtra[w] = S.shopExtra[w] || []).push({ name: n, done: false }); save(); render(); };
     $('#xbtn', v).onclick = addX; $('#xadd', v).onkeydown = e => { if (e.key === 'Enter') addX(); };
-    $('#share', v).onclick = async () => {
+    const listText = () => {
       const items = groceryList(w).filter(i => !S.shopChecked[w + '|' + i.key]);
       const txt = `Grocery list — Week ${w + 1}\n\n` + AISLES.map(a => { const its = items.filter(i => i.aisle === a); return its.length ? a.toUpperCase() + '\n' + its.map(i => `• ${i.name} — ${fmtQty(i.qty)} ${i.unit}`.trim()).join('\n') : ''; }).filter(Boolean).join('\n\n')
         + ((S.shopExtra[w] || []).filter(e => !e.done).length ? '\n\nEXTRAS\n' + S.shopExtra[w].filter(e => !e.done).map(e => '• ' + e.name).join('\n') : '');
-      try { if (navigator.share) { await navigator.share({ title: 'Grocery list', text: txt }); return; } } catch (e) { if (e.name === 'AbortError') return; }
-      try { await navigator.clipboard.writeText(txt); toast('List copied — paste it anywhere'); } catch (e) { openSheet(`<h3>Copy your list</h3><textarea class="inp" style="min-height:50vh">${esc(txt)}</textarea>`); }
+      return txt;
+    };
+    const manualCopy = txt => openSheet(`<h3>Copy your list</h3><p class="small muted">Press and hold in the box → Select All → Copy.</p><textarea class="inp" style="min-height:50vh" readonly>${esc(txt)}</textarea>`);
+    $('#copy', v).onclick = async () => {
+      const txt = listText();
+      try { await navigator.clipboard.writeText(txt); toast('List copied — paste it into Instacart or Notes'); } catch (e) { manualCopy(txt); }
+    };
+    $('#share', v).onclick = async () => {
+      const txt = listText();
+      if (!navigator.share) { $('#copy', v).click(); return; }
+      try { await navigator.share({ title: 'Grocery list', text: txt }); } catch (e) { if (e.name !== 'AbortError') manualCopy(txt); }
     };
   };
 
@@ -660,6 +689,41 @@
     scale: '<svg viewBox="0 0 48 48"><rect x="8" y="8" width="32" height="32" rx="8" fill="#c9bcc1"/><rect x="16" y="13" width="16" height="7" rx="2" fill="#23161b"/><text x="24" y="19" font-size="6" fill="#8fd3c3" text-anchor="middle" font-family="monospace">142</text><rect x="13" y="30" width="7" height="5" rx="2" fill="#7d6a70"/><rect x="28" y="30" width="7" height="5" rx="2" fill="#7d6a70"/></svg>',
     roller: '<svg viewBox="0 0 48 48"><rect x="6" y="16" width="36" height="16" rx="8" fill="#7b5cff"/><ellipse cx="42" cy="24" rx="3" ry="8" fill="#5a3fd6"/><path d="M12 16v16M18 16v16M24 16v16M30 16v16M36 16v16" stroke="#9a82ff" stroke-width="1.5"/></svg>'
   };
+
+  // ---------- backup ----------
+  async function backup() {
+    S.lastBackup = todayISO(); save();
+    const name = `fither-backup-${todayISO()}.json`, json = JSON.stringify(S);
+    try {
+      const file = new File([json], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'FitHer backup' });
+        toast('Backup saved ✓'); render(); return;
+      }
+    } catch (e) { if (e.name === 'AbortError') { S.lastBackup = null; save(); return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('Backup downloaded ✓'); render();
+  }
+  const hasData = () => S.log.length || S.weights.length || Object.keys(S.customRecipes).length || S.videos.length;
+  const daysSinceBackup = () => S.lastBackup ? Math.floor((parse(todayISO()) - parse(S.lastBackup)) / 864e5) : Infinity;
+  function backupReminder() {
+    if (!hasData() || daysSinceBackup() < 7 || S.backupSnooze === todayISO()) return '';
+    return `<div class="card" style="border:2px solid #f5b400"><div class="row between"><h3>💾 Time to back up your progress</h3><button class="iconbtn" data-snooze aria-label="Later">✕</button></div>
+      <div class="small muted" style="margin:6px 0 10px">${S.lastBackup ? `Last backup was ${daysSinceBackup()} days ago.` : "You haven't backed up yet."} Your workouts, weights and recipes live only on this phone. A backup takes 10 seconds.</div>
+      <button class="btn block" data-backup>Back up now</button></div>`;
+  }
+  function saveGuide() {
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    return `<div class="card"><h3>💾 How your progress is saved</h3>
+      <div class="cue"><b>1</b><div><b>It saves automatically</b> on this phone every time you log something. No account needed.</div></div>
+      <div class="cue"><b>2</b><div><b>Always open the app from the home-screen icon.</b>${ios ? " On iPhone, the icon and Safari keep <i>separate</i> data — progress logged in Safari won't show up in the icon app." : ''} Apps on the home screen are also safer from the phone clearing old website data.</div></div>
+      <div class="cue"><b>3</b><div><b>Back up once a week</b> (you'll get a reminder). Tap <b>Back up now</b> → ${ios ? 'choose <b>Save to Files</b> (pick iCloud Drive) or email it to yourself' : 'save it to Google Drive or email it to yourself'}.</div></div>
+      <div class="cue"><b>4</b><div><b>New phone or lost data?</b> Install the app again, go to Progress → <b>Restore</b>, and pick your latest backup file.</div></div>
+      <div class="small muted" style="margin:6px 0 10px">Don't clear your browser history/website data or delete the app without backing up first — that erases everything.</div>
+      <div class="row" style="gap:8px"><button class="btn grow" data-backup>⬇ Back up now</button><label class="btn ghost">⬆ Restore<input type="file" id="imp" accept="application/json,.json" hidden></label></div>
+      <div class="small muted" style="margin-top:8px">${S.lastBackup ? `Last backup: ${fmtDate(S.lastBackup)}` : 'No backup yet'}</div></div>`;
+  }
 
   // ======================================================================
   // PROGRESS
@@ -684,6 +748,8 @@
         <div class="small muted" style="margin-top:8px">Healthy, sustainable loss is about 0.5–2 lb/week. Weight bounces day to day — watch the trend, not one number.</div></div>
       <h2 class="row between"><span>Workout log</span><button class="btn sm ghost" id="lnew">+ Log workout</button></h2>
       ${S.log.length ? `<div class="card tight list">${S.log.slice(0, 60).map(l => `<div class="item" style="cursor:default;align-items:flex-start"><div class="emoji" style="background:${DAY_TYPES[l.type].color}22">${DAY_TYPES[l.type].icon}</div><div class="grow"><div class="t">${esc(l.title)} ${['', '😫', '😕', '🙂', '😊', '🔥'][l.rating] || ''}</div><div class="s">${fmtDate(l.date)} · ${l.mins} min${l.source === 'video' ? ' · YouTube' : ''}</div>${l.notes ? `<div class="s" style="margin-top:2px">${esc(l.notes)}</div>` : ''}</div><button class="iconbtn" style="width:30px;height:30px;font-size:13px" data-ldel="${l.id}" aria-label="Delete">✕</button></div>`).join('')}</div>` : '<div class="note small">No workouts logged yet. Finish one with the timer, or tap <b>+ Log workout</b>.</div>'}
+      <h2>Save your progress</h2>
+      ${saveGuide()}
       <h2>Settings</h2>
       <div class="card"><label class="f" style="margin-top:0">Your name</label><input class="inp" id="sname" value="${esc(S.name)}" placeholder="Name">
         <label class="f">Program start date (week 1, day 1)</label><input class="inp" id="sstart" type="date" value="${S.start}">
@@ -691,8 +757,7 @@
         <label class="f">Weekly split</label>
         ${WEEKDAYS.map((d, i) => `<div class="row" style="margin-bottom:6px"><span style="width:44px;font-weight:700">${d}</span><select class="inp" data-sched="${i}">${Object.entries(DAY_TYPES).map(([k, ty]) => `<option value="${k}" ${S.schedule[i] === k ? 'selected' : ''}>${ty.icon} ${ty.label}</option>`).join('')}</select></div>`).join('')}
         <label class="f">Appearance</label><select class="inp" id="stheme">${[['auto', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<option value="${k}" ${S.theme === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <div class="note small" style="margin-top:14px">Your data is saved only on this phone. Back it up now and then:</div>
-        <div class="row wrap" style="margin-top:10px;gap:8px"><button class="btn sm ghost" id="exp">⬇ Backup data</button><label class="btn sm ghost">⬆ Restore<input type="file" id="imp" accept="application/json" hidden></label><button class="btn sm line" id="restart">Start new 6 weeks</button><button class="btn sm line" id="wipe" style="color:#c22">Erase all</button></div>
+        <div class="row wrap" style="margin-top:16px;gap:8px"><button class="btn sm line" id="restart">Start new 6 weeks</button><button class="btn sm line" id="wipe" style="color:#c22">Erase all</button></div>
       </div>`;
   };
   function chartSVG(ws) {
@@ -719,11 +784,7 @@
     $('#scal', v).onchange = e => { S.calTarget = +e.target.value || 1500; save(); };
     $('#stheme', v).onchange = e => { S.theme = e.target.value; save(); applyTheme(); };
     on(v, '[data-sched]', 'change', el => { S.schedule[+el.dataset.sched] = el.value; save(); toast('Split updated'); });
-    $('#exp', v).onclick = () => {
-      const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `fither-backup-${todayISO()}.json`; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    };
+    on(v, '[data-backup]', 'click', backup);
     $('#imp', v).onchange = e => {
       const f = e.target.files[0]; if (!f) return;
       f.text().then(t => { const d = JSON.parse(t); if (!d.plan) throw 0; S = Object.assign(defaults(), d); save(); applyTheme(); render(); toast('Backup restored'); }).catch(() => toast("That file isn't a valid backup"));
